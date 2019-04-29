@@ -1,0 +1,56 @@
+---
+title: "Microbial Data Analysis"
+author: "Fangting Zhou"
+output: pdf_document
+---
+
+We coexist with our microbiota as mutualists. High-throughout sequencing technology such as 16S rRNA sequencing has been widely used to quantify the microbial composition in order to explore its relationship with human health. A key question in such microbiome studies is to identify latent features like diseases that are associated with certain microbes.
+
+### Description of the Data Set
+
+In the current work, the count data set **seedLev2Counts** consisting of 162 rows and 12 columns. Columns represent infants from two groups, with BF for breast feeding and FF for formula feeding respectively. Rows represent microbial operational taxonomic units (OTUs, pragmatic proxies for microbial species at different taxonomic levels) after aligning to the second level SEED subsystem. The raw data is highly right skewed and sparse with many zeros.
+
+```{r}
+library(reshape2)
+library(ggplot2)
+
+load('~/Desktop/Advanced Applied Statistics/project/Microbial-Data.RData')
+
+nrow(seedLev2Counts)
+ncol(seedLev2Counts)
+
+head(row.names(seedLev2Counts))
+tail(row.names(seedLev2Counts))
+colnames(seedLev2Counts)
+
+str(seedLev2Counts)
+
+sum(seedLev2Counts == 0) / ncol(seedLev2Counts) / nrow(seedLev2Counts)
+```
+
+```{r}
+heatmap(as.matrix(seedLev2Counts), Rowv = NA, Colv = NA, labRow = NA, labCol = NA)
+```
+
+```{r}
+plotData = melt(seedLev2Counts)
+ggplot(plotData, aes(x = variable, y = value)) + geom_boxplot(aes(fill = variable)) + 
+  theme(legend.position = "none") + labs(x = NULL, y = NULL)
+```
+
+### Goal of the Project
+
+For the current data set, the problem is specific to find features that are closely associated with certain infant microbiomes. Features are defined as some biological functions that are related to a set of microbiomes, for instance, immune function, defense function, digestive function and so on. Relevant gene expression data in **pairedExprSumm** will be used to validate the association analysis. Some work has been done in the report of He (2018) using sparse canonical correlation analysis (CCA). Meanwhile, features are associated with infant samples, which I expect to behave similar within group and different between groups. The project will help improve infant diets and verify whether breast feeding benefits the infant development.
+
+```{r}
+nrow(pairedExprSumm)
+ncol(pairedExprSumm)
+
+head(row.names(pairedExprSumm))
+tail(row.names(pairedExprSumm))
+colnames(pairedExprSumm)
+```
+
+### Methods
+
+To this end, I generalize the bayesian double feature allocation (DFA) proposed in Ni (2018) originally used on categorical data to the current data set. The generalized DFA is a probability model on the count data matrix based on bayesian hierarchical methods, which allow us to infer the latent structure. To be specific, the sampling model of each infant $x_i = (x_{i1}, \ldots, x_{ip})$ follows the multinomial distribution with the case-specific parameter $\theta_{ij}$ depending on the latent binary indicator $z_{ij}$. The latent variable $z_{ij}$ is used to indicate rich ($z_{ij} = 1$) or rare ($z_{ij} = 0$) of the $i$-th mircobiome in the $j$-th infant sample. For modeling details of the indicator matrix $Z$ using categorical matrix factorization, please refer to Ni (2018).
