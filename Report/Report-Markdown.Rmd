@@ -1,0 +1,265 @@
+---
+title: "Infant Microbial Operational Taxonomic Unit Analysis"
+author: "Fangting Zhou"
+output: pdf_document
+---
+
+We coexist with our microbiota as mutualists. High-throughout sequencing technology has been widely used to quantify the microbial composition in order to explore its relationship with human health. Gut microbiota and the host exist in a mutualistic relationship, with the functional composition of the microbiota strongly affecting the health and well-being of the host. Early microbial colonization in infants is critically important for directing neonatal intestinal and immune development, and is especially attractive for studying the development of human-commensal interactions.
+
+## Data set
+
+Operational taxonomic units (OTUs) are pragmatic proxies for microbial species at different taxonomic levels and have been the most commonly used units of microbial diversity. The current microbial data set seedLev2Counts was aligned using rapid annotation using subsystem technology against the SEED subsystem database. After aligning to the second level SEED subsystem, there are 162 species of OTUs. The sample size of the data set is 12 with 6 breast-feeding (BF) infants and 6 formula-feeding (FF) infants.
+
+```{r echo = FALSE}
+library(ggplot2)
+library(reshape2)
+
+load("/Users/Fangting/Desktop/Advanced Applied Statistics/project/Microbial-Data.RData")
+
+WideData  = t(seedLev2Counts) / colSums(seedLev2Counts)
+
+InfantID = row.names(WideData)
+OTU = colnames(WideData)
+```
+
+```{r}
+InfantID
+
+head(OTU)
+tail(OTU)
+```
+
+The raw data is strongly right skewed and spare with many zeros.
+
+```{r echo = FALSE}
+LongData = melt(as.matrix(WideData), varnames = c("InfantID", "OTU"),
+                value.name = "MicrobialComposition")
+
+ggplot(LongData, aes(x = InfantID, y = MicrobialComposition)) + geom_point(aes(color = OTU)) +
+  theme(legend.position = "none") + labs(title = "OTU Compositions across Infants") + 
+  theme(axis.ticks = element_blank())
+
+ggplot(LongData, aes(x = OTU, y = MicrobialComposition)) + geom_point(aes(color = InfantID)) +
+  scale_x_discrete(labels = NULL) + labs(title = "OTU Compositions across Infants") +
+  theme(axis.ticks = element_blank())
+
+ggplot(LongData, aes(x = InfantID, y = MicrobialComposition)) + geom_boxplot(aes(fill = InfantID)) +
+  labs(title = "Microbial Compositions of Infants") + 
+  theme(axis.ticks = element_blank())
+
+ggplot(LongData, aes(x = InfantID, y = OTU)) +
+  geom_tile(aes(fill = MicrobialComposition), color = "white") +
+  scale_fill_gradient(low = "white", high = "grey") +
+  scale_x_discrete(expand = c(0, 0), breaks = 1 : length(InfantID)) +
+  scale_y_discrete(expand = c(0, 0), labels = NULL, breaks = 1 : length(OTU)) +
+  labs(title = "Microbial Compositions of Infants")
+```
+
+Next we want to explore whether microbial compositions differ between infant groups and show top 30 prominent differences. 
+
+```{r echo = FALSE}
+BF = colSums(WideData[c("BMS8", "BMS10", "BMS16", "BF3", "BF4", "BF6"), ])
+FF = colSums(WideData[c("FF2", "FF3", "FF7", "FF13", "FF15", "FF5"), ])
+
+Index = sort(abs(BF - FF), decreasing = TRUE, index.return = TRUE)$ix[1 : 30]
+
+OTU[Index]
+
+GroupData = melt(rbind(BF[Index], FF[Index]), varnames = c("Group", "OTU"),
+                 value.name = "MicrobialComposition")
+GroupData$Group = ifelse(GroupData$Group == 1, "BF", "FF")
+
+ggplot(GroupData) + geom_point(aes(x = OTU, y = MicrobialComposition, color = Group)) +
+  scale_x_discrete(labels = NULL) + 
+  labs(title = "Differences of OTU Compositions between Groups") + 
+  theme(axis.ticks = element_blank())
+```
+
+From above plots, we observe that the composition of OTUs behave differently between two groups of BF infants and FF infants. The most significant differences appear to be virulence, carbohydrates and so on. We show correlation structures of infants and OTUs respectively.
+
+```{r echo = FALSE}
+corInfant = cor(t(WideData))
+
+corInfant = melt(corInfant, varnames = c("InfantIDA", "InfantIDB"), 
+                 value.name = "Correlation")
+
+ggplot(corInfant, aes(x = InfantIDA, y = InfantIDB)) +
+  geom_tile(aes(fill = Correlation), color = "white") +
+  scale_fill_gradient(low = "white", high = "grey") +
+  scale_x_discrete(expand = c(0, 0), breaks = 1 : length(InfantID)) +
+  scale_y_discrete(expand = c(0, 0), breaks = 1 : length(InfantID)) +
+  labs(x = "InfantID", y = "InfantID", title = "Correlation between Infants")
+```
+
+The correlation structure between infants seems to indicate that the behavior of BF6 differs greatly from others. If we perform K-means clustering with two centers, all infants except BF6 wiill be grouped into a single cluster.
+
+```{r}
+kmeans(WideData, centers = 2)$cluster
+
+kmeans(WideData, centers = 3)$cluster
+
+kmeans(WideData, centers = 4)$cluster
+```
+
+```{r echo = FALSE}
+corOTU = cor(WideData)
+
+corOTU = melt(corOTU, varnames = c("OTUA", "OTUB"), 
+                 value.name = "Correlation")
+
+ggplot(corOTU, aes(x = OTUA, y = OTUB)) +
+  geom_tile(aes(fill = Correlation), color = "white") +
+  scale_fill_gradient(low = "white", high = "grey") +
+  scale_x_discrete(expand = c(0, 0), breaks = 1 : length(OTU)) +
+  scale_y_discrete(expand = c(0, 0), breaks = 1 : length(OTU)) +
+  labs(x = "OTU", y = "OTU", title = "Correlation between OTUs")
+```
+
+The relationship between OTUs seems vague from the plot.
+
+## Model formulation
+
+To explain the variation of microbial compositions between groups and across infants, we propose the Bayesian double feature allocation using the count data matrix. The model will infer latent features that are associated with both OTUs and infants. At the same time, the result can be regarded as overlapping clustering for OTUs and infants simultaneously. Figure 1 illustrates the formation of our model.
+
+![Illustration of the model](/Users/Fangting/Desktop/Advanced Applied Statistics/project/ModelGraph)
+
+Suppose that there exists an OTU-latent matrix $\boldsymbol{A} = (a_{ik}) \in \{0, 1\}^{p \times K}$ which is assigned an Indian buffet (IBP) prior. IBP is a distribution over binary matrices with infinitely many columns with a parameter $\alpha$ that controls the sparsity of the matrix. The process is described by imagining an Indian buffet offering an infinite number of dishes. Each customer entering the restaurant chooses the dishes that have been already sampled by other customers with probability proportional to their popularity. Then he also tries a number of new dishes dependent on the parameter $\alpha$. Customers are exchangeable and dishes are independent. For the current model, customers correspond to OTUs and dishes correspond to latent features. Given the number of columns $K$ of $\boldsymbol{A}$, each elements of the infant-latent matrix $\boldsymbol{B} = (b_{jk}) \in \{0, 1\}^{n \times K}$ follows independent Bernoulli distribution $\mathrm{Bernoulli}(\rho)$. A $\mathrm{Beta}(\alpha_\rho, \beta_\rho)$ pior is assigned to parameter $\rho$.
+
+Suppose that we also have a weight matrix $\boldsymbol{W} = (w_{jk}) \in \mathbb{R}_+^{n \times K}$ and a residual vector $\boldsymbol{e} = (e_j) \in \mathbb{R}^n$, each element of which follows independent $\mathrm{Gamma}(1, \beta_w)$ distribution and $\mathrm{Normal}(0, \sigma_e^2)$ distribution respectively. Given $\boldsymbol{A}$, $\boldsymbol{B}$, $\boldsymbol{W}$ and $\boldsymbol{e}$, each element $z_{ij}$ of the latent matrix $\boldsymbol{Z} \in \{0, 1\}^{p \times n}$ is modeled as
+$$z_{ij} | \{a_{ik}\}, \{b_{jk}\}, \{w_{jk}\}, e_j \sim \mathrm{logit}\left(\sum_{k = 1}^K a_{ik} w_{jk} b_{jk} + e_j\right),$$
+where $\mathrm{logit}(x) = e^x / (1 + e^x)$. Here $z_{ij}$ can be used to indicate that OTU $i$ is relative abundant ($z_{ij} = 1$) and scarce ($z_{ij} = 0$) in infant $j$. 
+
+In high throughput sequencing, data obtained are count compositions since the capacity of the machine determines the number of reads observed. These reduce to probabilities of observing a feature given the sequencing depth. To this end, our sampling model assumes that each column $\boldsymbol{x}_j$ of the observation matrix $\boldsymbol{X} \in \{\mathbb{R}_+ \cup 0\}^{p \times n}$ follows the multinomial distribution
+$$\boldsymbol{x}_j \sim \mathrm{multinomial}(n_j, \boldsymbol{\pi}_j), \quad \boldsymbol{\pi_j} = \frac{\boldsymbol{r_j}}{\sum \boldsymbol{r}_j} = \frac{(r_{1j}, \ldots, r_{pj})}{\sum_{i = 1}^p r_{ij}},$$
+where $n_j = \sum_{i = 1}^p x_{ij}$. The distribution of $r_{ij}$ in $\boldsymbol{R} \in \mathbb{R}_+^{p \times n}$ depends on the latent indicator
+$$r_{ij} | \theta_i, z_{ij} = 1 \sim \mathrm{Gamma}\left(\theta_i + 1, 1\right), \quad
+r_{ij} | \theta_i, z_{ij} = 0 \sim \mathrm{Gamma}\left(\frac{1}{\theta_i + 1}, 1\right).$$
+The prior on $\boldsymbol{\pi}_j$ is then the Dirichlet distribution. We finally put independent $\mathrm{Gamma}(\alpha_\theta, \beta_\theta)$ on each $\theta_i \in \boldsymbol{\theta} \in \mathbb{R}_+^p$.
+
+## Model inference
+
+The inference procedure is based on markov chain Monte Carlo (MCMC) method, especially Metropolis-Hastings within Gibbs sampling. All parameters expect $\boldsymbol{A}$ can be sampled based on their full conditional distribution or through a Metropolis-Hastings step. Updating $\boldsymbol{A}$ includes sampling existing entries and proposing new latent features based on the Indian buffet construction. The proposed new features are accepted or rejected based on a Metropolis-Hastings step together with associated parameters in $\boldsymbol{B}$ and $\boldsymbol{W}$ drawn from the corresponding prior.
+
+We run the proposed MCMC algorithm for 20000 iteration. The first half samples are discarded as burin-in and posterior samples are retained at every fifth iterations. We remove insignificant features from the result if it only contains single one element. The posterior mode of the number of latent features occurs at $K = 8$ or $K = 9$ with probability 0.21 and 0.20 respectively. Here we choose $K = 8$.
+
+```{r eval = FALSE, include = FALSE}
+Result = UpdateMCMC(20000, t(WideData), seed = 123)
+```
+
+```{r echo = FALSE}
+load("/Users/Fangting/Desktop/Advanced Applied Statistics/project/Result.RData")
+```
+
+```{r echo = FALSE}
+A = recordA[seq(10000, 20000, 5)]
+B = recordB[seq(10000, 20000, 5)]
+
+K = NULL
+for(i in 1 : length(A)) {
+  index = NULL
+  for(j in 1 : ncol(A[[i]])) {
+    if(sum(A[[i]][, j]) == 1) index = c(index, j)
+  }
+  if(length(index) != 0) {
+    A[[i]] = A[[i]][, -index]
+    B[[i]] = B[[i]][, -index]
+  }
+  K = c(K, ncol(A[[i]]))
+}
+
+(prob = table(K) / length(K))
+Khat = as.numeric(names(prob)[which.max(prob)])
+
+ggplot() + geom_histogram(aes(x = K), binwidth = 1, fill = "white", color = "black") + labs(title = "Histogram of Number of Latent Features")
+```
+
+Given $K$, we find the least squares estimator $\boldsymbol{A}$ by the following procedure. For any two binary matrices $\boldsymbol{A}$ and $\tilde{\boldsymbol{A}}$, we define the distance $d(\boldsymbol{A}, \tilde{\boldsymbol{A}}) = \min_\pi \mathcal{H}(\boldsymbol{A}, \pi(\tilde{\boldsymbol{A}}))$, where $\pi(\tilde{\boldsymbol{A}})$ denotes a permutation of the columns of $\tilde{\boldsymbol{A}}$ and $\mathcal{H}(\cdot, \cdot)$ is the Hamming distance of two binary matrices. A point estimate $\boldsymbol{A}$ is then obtained as
+$$\boldsymbol{A} = \arg \max_{\boldsymbol{A}} \int d(\tilde{\boldsymbol{A}}, \boldsymbol{A}) d p(\tilde{\boldsymbol{A}} | \boldsymbol{X}, K).$$
+Both, the integral as well as the optimization can be approximated using the available Monte Carlo MCMC samples, by carrying out the minimization over $\tilde{\boldsymbol{A}} \in \{\boldsymbol{A}_t, \ t = 1, \ldots, T\}$ and by evaluating the integral as Monte Carlo average. The posterior point estimators of other parameters are obtained as posterior means conditional on $\boldsymbol{A}$. We evaluate posterior means using the posterior Monte Carlo samples.
+
+```{r echo = FALSE}
+ResultA = NULL
+ResultB = NULL
+
+for(i in 1 : length(A)) {
+  if(ncol(A[[i]]) == Khat) {
+    ResultA = c(ResultA, list(A[[i]]))
+    ResultB = c(ResultB, list(B[[i]]))
+  }
+}
+
+calHamming = function(MA, MB) {
+  A = as.vector(MA)
+  ## list all permutations
+  permutation = permutations(ncol(MA))
+  
+  DHamming = rep(NA, nrow(permutation))
+  for(l in 1 : nrow(permutation)) {
+    B = as.vector(MB[, permutation[l, ]])
+    DHamming[l] = hamming.distance(A, B)
+  }
+  
+  result = min(DHamming)
+  return(result)
+}
+```
+
+```{r eval = FALSE, include = FALSE}
+dist = matrix(0, length(ResultA), length(ResultA))
+
+numcore = parallel::detectCores()
+cluster = makeCluster(numcore)
+registerDoSNOW(cluster)
+for(i in 1 : length(ResultA)) {
+  x = foreach(j = i : length(ResultA), .combine = "c") %dopar% {library(e1071); 
+    calHamming(ResultA[[i]], ResultA[[j]])}
+  dist[i, i : length(ResultA)] = x
+  dist[i : length(ResultA), i] = x
+}
+stop(cluster)
+```
+
+```{r echo = FALSE}
+index = length(ResultA)
+
+Ahat = ResultA[[index]]
+Bhat = ResultB[[index]]
+
+Ahatplot = melt(Ahat, varnames = c("OTU", "LatentFeature"), 
+            value.name = "Indicator")
+
+ggplot(Ahatplot, aes(x = LatentFeature, y = OTU)) +
+  geom_tile(aes(fill = Indicator), color = "white") +
+  scale_fill_gradient(low = "white", high = "grey") +
+  scale_x_discrete(expand = c(0, 0), breaks = 1 : Khat) +
+  scale_y_discrete(expand = c(0, 0), breaks = 1 : length(OTU)) +
+  theme(legend.position = "none") + labs(title = "Estimator of A")
+
+Bhatplot = melt(Bhat, varnames = c("Infant", "LatentFeature"), 
+                 value.name = "Indicator")
+
+ggplot(Bhatplot, aes(x = LatentFeature, y = Infant)) +
+  geom_tile(aes(fill = Indicator), color = "white") +
+  scale_fill_gradient(low = "white", high = "grey") +
+  scale_x_discrete(expand = c(0, 0), breaks = 1 : Khat) +
+  scale_y_discrete(expand = c(0, 0), breaks = 1 : length(InfantID)) +
+  theme(legend.position = "none") + labs(title = "Estimator of B")
+```
+
+If we treat the feature allocation matrix $\boldsymbol{A}$ as the overlapping clustering matrix, that is, when $a_{ik} = 1$, we assign OTU $i$ to the $k$-th cluster. Similar explanations can be used to illustrate the result of $\boldsymbol{B}$.
+
+We run several Markov chains with different initializations and the gelman.diag function in R shows the sign of convergence of the number of latent features with the upper limit of potential scale reduction factor close to 1.
+
+```{r eval = FALSE, include = FALSE}
+ResultA = UpdateMCMC(20000, t(WideData), seed = 456)
+ResultB = UpdateMCMC(20000, t(WideData), seed = 789)
+
+FeatureNumA = ResultA$Num
+FeatureNumB = ResultB$Num
+
+gelman.diag(list(as.mcmc(FeatureNumA), as.mcmc(FeatureNumB)))
+```
+
+## Comment and discussion
+
+The recovered latent features are hard to explain from a biological perspective. Currently, there are two main problems in the model. The first one is that the sampling distribution is not quite appropriate for the data at hand, which results in poor recovered latent indicators. The issue is partly due to the high variance of components corresponding to $z = 1$ compared to those corresponding to $z = 0$. The second one is that the number of operational taxonomic units is quite large to form meaningful groups under the Indian buffet prior, which always prefer a few large clusters and many small clusters. Available prior information can be incorporated into the model and the polygenetic Indian buffet process may be used to encourage similar latent features between closer individuals. Moreover, the identification problem of the Indian buffet process may make it hard to explain the data in a meaningful way. We may replace the Indian buffet process with the determinantal point process, which presents a repulsive prior on latent feature components.
