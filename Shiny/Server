@@ -1,0 +1,16 @@
+load("Microbial-Data.RData")
+
+library(dplyr)
+library(shiny)
+library(ggplot2)
+library(reshape2)
+
+data = as.matrix(seedLev2Counts)
+data = t(t(data) / colSums(data))
+data = melt(data, varnames = c("OTU", "Infant"), value.name = "Composition")
+
+
+function(input, output) {
+  output$image <- renderPlot({ggplot(filter(data, Infant %in% input$sample), aes(x = OTU, y = Composition)) + geom_point(aes(color = Infant)) +
+      scale_x_discrete(labels = NULL) + theme(axis.ticks = element_blank()) + xlab(NULL) + ylab(NULL)})
+}
