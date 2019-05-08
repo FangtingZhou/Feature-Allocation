@@ -1,0 +1,14 @@
+load("Microbial-Data.RData")
+
+library(shiny)
+
+fluidPage(
+  titlePanel("Microbial Composition in Infants"),
+  
+  sidebarLayout(
+    sidebarPanel(checkboxGroupInput("sample", label = "Choose the sample to display",
+                                    choices = colnames(seedLev2Counts)), selected = ncol(seedLev2Counts)),
+    
+    mainPanel(imageOutput("image"))
+  )
+)
